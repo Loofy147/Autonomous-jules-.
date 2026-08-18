@@ -1,0 +1,36 @@
+name: Autonomous Pipeline Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Pipeline action to execute'
+        required: true
+        default: 'status'
+      query:
+        description: 'Parameters/Query string'
+        required: false
+        default: 'health_check'
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Execute Pipeline CLI
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          autonomous-jules run --action ${{ github.event.inputs.action }} --param query=${{ github.event.inputs.query }}
