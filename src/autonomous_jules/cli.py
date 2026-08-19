@@ -44,7 +44,7 @@ def main(args=None):
 
     # run command
     run_parser = subparsers.add_parser("run", parents=[common_sub], help="Run a pipeline action or multi-step pipeline config file")
-    run_parser.add_argument("--action", help="Action name (e.g., run_agent, github_comment, github_review, trigger_workflow, commit_status)")
+    run_parser.add_argument("--action", help="Action name (e.g., run_agent, github_comment, github_review, trigger_workflow, commit_status, create_pr)")
     run_parser.add_argument("--config-file", help="Path to pipeline JSON configuration file")
     run_parser.add_argument("--param", action="append", help="Parameters in key=value format")
 
@@ -65,6 +65,29 @@ def main(args=None):
     cs_parser.add_argument("--state", choices=["success", "failure", "pending", "error"], default="success", help="Commit status state")
     cs_parser.add_argument("--context", default="autonomous-jules/pipeline", help="Status check context label")
     cs_parser.add_argument("--description", default="", help="Status description")
+
+    # create-pr command
+    pr_parser = subparsers.add_parser("create-pr", parents=[common_sub], help="Create a pull request")
+    pr_parser.add_argument("--owner", required=True, help="Repository owner")
+    pr_parser.add_argument("--repo", required=True, help="Repository name")
+    pr_parser.add_argument("--title", required=True, help="Pull request title")
+    pr_parser.add_argument("--head", required=True, help="Branch containing changes")
+    pr_parser.add_argument("--base", default="main", help="Target branch")
+    pr_parser.add_argument("--body", default="", help="Pull request description body")
+
+    # create-issue command
+    issue_parser = subparsers.add_parser("create-issue", parents=[common_sub], help="Create a repository issue")
+    issue_parser.add_argument("--owner", required=True, help="Repository owner")
+    issue_parser.add_argument("--repo", required=True, help="Repository name")
+    issue_parser.add_argument("--title", required=True, help="Issue title")
+    issue_parser.add_argument("--body", default="", help="Issue description body")
+
+    # get-file command
+    file_parser = subparsers.add_parser("get-file", parents=[common_sub], help="Get content of a file")
+    file_parser.add_argument("--owner", required=True, help="Repository owner")
+    file_parser.add_argument("--repo", required=True, help="Repository name")
+    file_parser.add_argument("--path", required=True, help="File path in repository")
+    file_parser.add_argument("--ref", default="main", help="Git reference (branch/tag/sha)")
 
     parsed = parser.parse_args(args)
 
@@ -120,6 +143,41 @@ def main(args=None):
             "description": parsed.description
         }
         result = runner.run_step("commit_status", params, dry_run=dry_run)
+        print(format_output(result, output_format))
+        return 0 if result.get("status") == "SUCCESS" else 1
+
+    elif parsed.command == "create-pr":
+        params = {
+            "owner": parsed.owner,
+            "repo": parsed.repo,
+            "title": parsed.title,
+            "head": parsed.head,
+            "base": parsed.base,
+            "body": parsed.body
+        }
+        result = runner.run_step("create_pr", params, dry_run=dry_run)
+        print(format_output(result, output_format))
+        return 0 if result.get("status") == "SUCCESS" else 1
+
+    elif parsed.command == "create-issue":
+        params = {
+            "owner": parsed.owner,
+            "repo": parsed.repo,
+            "title": parsed.title,
+            "body": parsed.body
+        }
+        result = runner.run_step("create_issue", params, dry_run=dry_run)
+        print(format_output(result, output_format))
+        return 0 if result.get("status") == "SUCCESS" else 1
+
+    elif parsed.command == "get-file":
+        params = {
+            "owner": parsed.owner,
+            "repo": parsed.repo,
+            "path": parsed.path,
+            "ref": parsed.ref
+        }
+        result = runner.run_step("get_file", params, dry_run=dry_run)
         print(format_output(result, output_format))
         return 0 if result.get("status") == "SUCCESS" else 1
 

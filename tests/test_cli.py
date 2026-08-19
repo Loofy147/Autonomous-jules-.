@@ -51,6 +51,24 @@ def test_cli_commit_status_command(capsys):
     captured = capsys.readouterr()
     assert "commit_status" in captured.out
 
+def test_cli_create_pr_command(capsys):
+    ret = main(["create-pr", "--owner", "o", "--repo", "r", "--title", "PR Title", "--head", "feat-1"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "create_pr" in captured.out
+
+def test_cli_create_issue_command(capsys):
+    ret = main(["create-issue", "--owner", "o", "--repo", "r", "--title", "Issue Title", "--body", "Body"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "create_issue" in captured.out
+
+def test_cli_get_file_command(capsys):
+    ret = main(["get-file", "--owner", "o", "--repo", "r", "--path", "README.md"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "get_file" in captured.out
+
 def test_cli_run_config_file(capsys):
     cfg_dict = {
         "name": "CLI File Pipeline",

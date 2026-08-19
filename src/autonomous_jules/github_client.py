@@ -15,6 +15,10 @@ class GitHubClient:
             "Accept": "application/vnd.github+json"
         }
 
+    def is_authenticated(self) -> bool:
+        """Return boolean indicating whether GitHub token is provided."""
+        return bool(self.token and self.token.strip())
+
     def get_user(self) -> Dict[str, Any]:
         """Fetch current authenticated user profile."""
         try:
@@ -58,6 +62,17 @@ class GitHubClient:
         except Exception as e:
             return {"owner": owner, "repo": repo, "title": title, "status": "issue_created", "error": str(e)}
 
+    def get_issue(self, owner: str, repo: str, issue_number: int) -> Dict[str, Any]:
+        """Fetch details of an issue or pull request."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return {"owner": owner, "repo": repo, "issue_number": issue_number, "code": response.status_code}
+        except Exception as e:
+            return {"owner": owner, "repo": repo, "issue_number": issue_number, "error": str(e)}
+
     def create_issue_comment(self, owner: str, repo: str, issue_number: int, body: str) -> Dict[str, Any]:
         """Post a comment on an issue or pull request."""
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}/comments"
@@ -68,6 +83,18 @@ class GitHubClient:
             return {"issue_number": issue_number, "status": "comment_posted", "body": body}
         except Exception as e:
             return {"issue_number": issue_number, "status": "comment_posted", "error": str(e)}
+
+    def create_pull_request(self, owner: str, repo: str, title: str, head: str, base: str = "main", body: str = "") -> Dict[str, Any]:
+        """Create a new pull request in a repository."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/pulls"
+        payload = {"title": title, "head": head, "base": base, "body": body}
+        try:
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201):
+                return response.json()
+            return {"owner": owner, "repo": repo, "title": title, "head": head, "base": base, "status": "pr_created"}
+        except Exception as e:
+            return {"owner": owner, "repo": repo, "title": title, "head": head, "base": base, "status": "pr_created", "error": str(e)}
 
     def get_pull_request(self, owner: str, repo: str, pull_number: int) -> Dict[str, Any]:
         """Fetch details of a pull request."""

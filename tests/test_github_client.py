@@ -7,6 +7,7 @@ def test_github_client_init():
     client = GitHubClient(token="test_token")
     assert client.token == "test_token"
     assert "Authorization" in client.headers
+    assert client.is_authenticated() is True
 
 def test_github_client_get_user():
     client = GitHubClient()
@@ -29,11 +30,24 @@ def test_github_client_create_issue():
     assert isinstance(res, dict)
     assert res.get("title") == "Test Title"
 
+def test_github_client_get_issue():
+    client = GitHubClient()
+    res = client.get_issue("owner", "repo", 42)
+    assert isinstance(res, dict)
+    assert res.get("issue_number") == 42
+
 def test_github_client_create_issue_comment():
     client = GitHubClient()
     res = client.create_issue_comment("owner", "repo", 1, "test body")
     assert isinstance(res, dict)
     assert res.get("issue_number") == 1
+
+def test_github_client_create_pull_request():
+    client = GitHubClient()
+    res = client.create_pull_request("owner", "repo", "PR Title", "feat-branch", "main", "PR body")
+    assert isinstance(res, dict)
+    assert res.get("title") == "PR Title"
+    assert res.get("head") == "feat-branch"
 
 def test_github_client_get_pull_request():
     client = GitHubClient()

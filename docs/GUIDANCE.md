@@ -37,6 +37,15 @@ autonomous-jules cancel --task-id task_simulated_123
 
 # Set a GitHub commit status check
 autonomous-jules commit-status --owner myorg --repo myrepo --sha HEAD --state success --context autonomous-jules/check
+
+# Create a pull request programmatically
+autonomous-jules create-pr --owner myorg --repo myrepo --title "feat: add feature" --head feature-branch --base main
+
+# Create an issue
+autonomous-jules create-issue --owner myorg --repo myrepo --title "Bug report" --body "Issue details"
+
+# Retrieve file content from a repo
+autonomous-jules get-file --owner myorg --repo myrepo --path README.md
 ```
 
 ## 2. GitHub Credentials & Permissions
