@@ -15,6 +15,12 @@ def test_cli_run_agent(capsys):
     captured = capsys.readouterr()
     assert "run_agent" in captured.out
 
+def test_cli_github_review(capsys):
+    ret = main(["run", "--action", "github_review", "--param", "owner=o", "--param", "repo=r", "--param", "pull_number=1", "--param", "body=lgtm"])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "github_review" in captured.out
+
 def test_cli_invalid_action(capsys):
     ret = main(["run", "--action", "invalid_action"])
     assert ret == 1

@@ -52,7 +52,8 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
 - **Core Operations**:
   - `get_repository(owner: str, repo: str)`: Fetches repository metadata.
   - `create_issue_comment(owner: str, repo: str, issue_number: int, body: str)`: Posts status comments.
-  - `trigger_workflow_dispatch(...)`: Triggers GitHub Actions workflow events.
+  - `create_pull_request_review(owner: str, repo: str, pull_number: int, body: str, event: str)`: Creates structured code reviews (`APPROVE`, `REQUEST_CHANGES`, `COMMENT`).
+  - `trigger_workflow_dispatch(owner: str, repo: str, workflow_id: str, ref: str, inputs: dict)`: Triggers GitHub Actions workflow events.
 
 ## 5. Security & Credentials
 - Credentials (`JULES_API_KEY`, `GITHUB_TOKEN`) must never be hardcoded or logged in plaintext.

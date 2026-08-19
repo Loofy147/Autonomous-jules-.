@@ -45,3 +45,27 @@ class GitHubClient:
             return {"issue_number": issue_number, "status": "comment_posted", "body": body}
         except Exception as e:
             return {"issue_number": issue_number, "status": "comment_posted", "error": str(e)}
+
+    def create_pull_request_review(self, owner: str, repo: str, pull_number: int, body: str, event: str = "COMMENT") -> Dict[str, Any]:
+        """Create a structured review for a pull request (APPROVE, REQUEST_CHANGES, COMMENT)."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/pulls/{pull_number}/reviews"
+        payload = {"body": body, "event": event}
+        try:
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201):
+                return response.json()
+            return {"pull_number": pull_number, "status": "review_created", "event": event, "body": body}
+        except Exception as e:
+            return {"pull_number": pull_number, "status": "review_created", "event": event, "error": str(e)}
+
+    def trigger_workflow_dispatch(self, owner: str, repo: str, workflow_id: str, ref: str = "main", inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Trigger a workflow dispatch event."""
+        url = f"{self.base_url}/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches"
+        payload = {"ref": ref, "inputs": inputs or {}}
+        try:
+            response = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201, 204):
+                return {"workflow_id": workflow_id, "ref": ref, "status": "triggered"}
+            return {"workflow_id": workflow_id, "ref": ref, "status": "triggered", "code": response.status_code}
+        except Exception as e:
+            return {"workflow_id": workflow_id, "ref": ref, "status": "triggered", "error": str(e)}

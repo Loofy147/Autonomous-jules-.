@@ -22,6 +22,12 @@ autonomous-jules status
 
 # Run a pipeline task
 autonomous-jules run --action run_agent --param query="Run diagnostics"
+
+# Submit a structured review on a pull request
+autonomous-jules run --action github_review --param owner=myorg --param repo=myrepo --param pull_number=42 --param body="LGTM" --param event=APPROVE
+
+# Trigger a workflow dispatch
+autonomous-jules run --action trigger_workflow --param owner=myorg --param repo=myrepo --param workflow_id=pipeline.yml
 ```
 
 ## 2. GitHub Credentials & Permissions
