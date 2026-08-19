@@ -25,3 +25,7 @@ def test_jules_client_fetch_result():
     res = client.fetch_result("task_123")
     assert isinstance(res, dict)
     assert res.get("task_id") == "task_123"
+
+def test_jules_client_retry():
+    client = JulesClient(max_retries=2)
+    assert client.max_retries == 2

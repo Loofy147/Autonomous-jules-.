@@ -14,7 +14,7 @@ def main(args=None):
 
     # run command
     run_parser = subparsers.add_parser("run", help="Run a pipeline action")
-    run_parser.add_argument("--action", required=True, help="Action name (e.g., run_agent, github_comment)")
+    run_parser.add_argument("--action", required=True, help="Action name (e.g., run_agent, github_comment, github_review, trigger_workflow)")
     run_parser.add_argument("--param", action="append", help="Parameters in key=value format")
 
     parsed = parser.parse_args(args)

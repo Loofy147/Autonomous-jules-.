@@ -23,3 +23,17 @@ def test_github_client_create_issue_comment():
     res = client.create_issue_comment("owner", "repo", 1, "test body")
     assert isinstance(res, dict)
     assert res.get("issue_number") == 1
+
+def test_github_client_create_pull_request_review():
+    client = GitHubClient()
+    res = client.create_pull_request_review("owner", "repo", 1, "review body", "APPROVE")
+    assert isinstance(res, dict)
+    assert res.get("pull_number") == 1
+    assert res.get("event") == "APPROVE"
+
+def test_github_client_trigger_workflow_dispatch():
+    client = GitHubClient()
+    res = client.trigger_workflow_dispatch("owner", "repo", "pipeline.yml", "main")
+    assert isinstance(res, dict)
+    assert res.get("workflow_id") == "pipeline.yml"
+    assert res.get("status") == "triggered"
