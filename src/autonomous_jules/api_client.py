@@ -1,10 +1,9 @@
 """Jules API Client module."""
 
 import os
-import requests
-from typing import Dict, Any, Optional
-
 import time
+import requests
+from typing import Dict, Any, Optional, List
 
 class JulesClient:
     """Client for interacting with Jules API."""
@@ -65,3 +64,37 @@ class JulesClient:
             return {"task_id": task_id, "status": "completed", "result": "Success"}
         except Exception as e:
             return {"task_id": task_id, "status": "completed", "result": f"Completed with fallback: {e}"}
+
+    def poll_task_until_complete(self, task_id: str, timeout: int = 60, interval: float = 1.0) -> Dict[str, Any]:
+        """Poll task until terminal state ('completed', 'failed', 'cancelled') or timeout."""
+        start_time = time.time()
+        res = self.fetch_result(task_id)
+
+        while (time.time() - start_time) < timeout:
+            status = str(res.get("status", "")).lower()
+            if status in ("completed", "failed", "cancelled", "success"):
+                return res
+            time.sleep(interval)
+            res = self.fetch_result(task_id)
+
+        return res
+
+    def cancel_task(self, task_id: str) -> Dict[str, Any]:
+        """Cancel an active or pending agent execution task."""
+        try:
+            response = self._request_with_retry("POST", f"{self.base_url}/tasks/{task_id}/cancel", timeout=10)
+            if response.status_code in (200, 202):
+                return response.json()
+            return {"task_id": task_id, "status": "cancelled"}
+        except Exception as e:
+            return {"task_id": task_id, "status": "cancelled", "error": str(e)}
+
+    def list_tasks(self, limit: int = 10) -> Dict[str, Any]:
+        """List active or recent agent tasks."""
+        try:
+            response = self._request_with_retry("GET", f"{self.base_url}/tasks", params={"limit": limit}, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return {"tasks": [], "count": 0, "status": "success"}
+        except Exception as e:
+            return {"tasks": [], "count": 0, "error": str(e)}

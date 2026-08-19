@@ -20,14 +20,23 @@ pip install -e .
 # Check status of API connections
 autonomous-jules status
 
-# Run a pipeline task
+# Run a pipeline task directly
 autonomous-jules run --action run_agent --param query="Run diagnostics"
 
-# Submit a structured review on a pull request
-autonomous-jules run --action github_review --param owner=myorg --param repo=myrepo --param pull_number=42 --param body="LGTM" --param event=APPROVE
+# Run a multi-step pipeline from configuration file
+autonomous-jules run --config-file pipeline.json --output-format json
 
-# Trigger a workflow dispatch
-autonomous-jules run --action trigger_workflow --param owner=myorg --param repo=myrepo --param workflow_id=pipeline.yml
+# Execute dry-run mode
+autonomous-jules run --action run_agent --param query="Run diagnostics" --dry-run
+
+# Poll a task until completion
+autonomous-jules poll --task-id task_simulated_123 --timeout 30
+
+# Cancel a task
+autonomous-jules cancel --task-id task_simulated_123
+
+# Set a GitHub commit status check
+autonomous-jules commit-status --owner myorg --repo myrepo --sha HEAD --state success --context autonomous-jules/check
 ```
 
 ## 2. GitHub Credentials & Permissions
@@ -40,4 +49,5 @@ Ensure repository permissions match required access scopes:
 ## 3. Best Practices
 1. **Secret Security**: Never log environment tokens or API keys to standard output or log files.
 2. **Idempotency**: Ensure pipeline actions are safe to rerun on failure.
-3. **Testing**: Run `pytest` locally before opening pull requests.
+3. **Dry-Run Validation**: Test pipeline configurations using `--dry-run` before applying changes in production repositories.
+4. **Testing**: Run `python3 -m pytest` locally before opening pull requests.

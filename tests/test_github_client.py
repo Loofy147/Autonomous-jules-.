@@ -18,11 +18,28 @@ def test_github_client_get_repo():
     repo = client.get_repo("test_owner", "test_repo")
     assert isinstance(repo, dict)
 
+def test_github_client_get_file_content():
+    client = GitHubClient()
+    content = client.get_file_content("owner", "repo", "README.md")
+    assert isinstance(content, dict)
+
+def test_github_client_create_issue():
+    client = GitHubClient()
+    res = client.create_issue("owner", "repo", "Test Title", "Test Body")
+    assert isinstance(res, dict)
+    assert res.get("title") == "Test Title"
+
 def test_github_client_create_issue_comment():
     client = GitHubClient()
     res = client.create_issue_comment("owner", "repo", 1, "test body")
     assert isinstance(res, dict)
     assert res.get("issue_number") == 1
+
+def test_github_client_get_pull_request():
+    client = GitHubClient()
+    res = client.get_pull_request("owner", "repo", 10)
+    assert isinstance(res, dict)
+    assert res.get("pull_number") == 10
 
 def test_github_client_create_pull_request_review():
     client = GitHubClient()
@@ -37,3 +54,16 @@ def test_github_client_trigger_workflow_dispatch():
     assert isinstance(res, dict)
     assert res.get("workflow_id") == "pipeline.yml"
     assert res.get("status") == "triggered"
+
+def test_github_client_get_workflow_run():
+    client = GitHubClient()
+    res = client.get_workflow_run("owner", "repo", 12345)
+    assert isinstance(res, dict)
+    assert res.get("run_id") == 12345
+
+def test_github_client_create_commit_status():
+    client = GitHubClient()
+    res = client.create_commit_status("owner", "repo", "abc1234", "success", description="all good")
+    assert isinstance(res, dict)
+    assert res.get("sha") == "abc1234"
+    assert res.get("state") == "success"
