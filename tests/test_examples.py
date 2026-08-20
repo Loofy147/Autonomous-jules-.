@@ -1,8 +1,13 @@
 """Tests for showcase examples and demonstration script."""
 
 import os
+import sys
 import json
 import pytest
+
+# Ensure repository root is in sys.path when running in isolated test runners
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from examples.showcase_demo import showcase_jules_client, showcase_github_client, showcase_pipeline_runner, showcase_cli, main as showcase_main
 from autonomous_jules.pipeline import PipelineRunner
 
