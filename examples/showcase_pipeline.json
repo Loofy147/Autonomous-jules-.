@@ -1,0 +1,59 @@
+{
+  "name": "Autonomous Jules End-to-End Showcase Pipeline",
+  "on_failure": "stop_on_failure",
+  "steps": [
+    {
+      "task_id": "step_status_check",
+      "action": "status",
+      "params": {}
+    },
+    {
+      "task_id": "step_agent_execution",
+      "action": "run_agent",
+      "params": {
+        "query": "Perform automated security compliance audit and test validation"
+      }
+    },
+    {
+      "task_id": "step_poll_completion",
+      "action": "poll",
+      "params": {
+        "task_id": "task_simulated_123",
+        "timeout": 10
+      }
+    },
+    {
+      "task_id": "step_github_issue_comment",
+      "action": "github_comment",
+      "params": {
+        "owner": "autonomous-jules-org",
+        "repo": "showcase-repo",
+        "issue_number": 42,
+        "body": "Automated security audit completed successfully by Autonomous Jules Agent."
+      }
+    },
+    {
+      "task_id": "step_github_pr_review",
+      "action": "github_review",
+      "params": {
+        "owner": "autonomous-jules-org",
+        "repo": "showcase-repo",
+        "pull_number": 7,
+        "body": "Automated Jules Code Review: All automated verification checks passed.",
+        "event": "APPROVE"
+      }
+    },
+    {
+      "task_id": "step_set_commit_status",
+      "action": "commit_status",
+      "params": {
+        "owner": "autonomous-jules-org",
+        "repo": "showcase-repo",
+        "sha": "HEAD",
+        "state": "success",
+        "context": "autonomous-jules/showcase-audit",
+        "description": "Showcase security and test verification passed"
+      }
+    }
+  ]
+}

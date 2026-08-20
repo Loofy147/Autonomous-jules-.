@@ -66,3 +66,10 @@ The execution pipeline triggers automated Jules agent tasks and repo automation 
 - **Transient Network Retries**: Retries failed REST requests up to 3 times with exponential backoff.
 - **Workflow Failures**: Emits structured log output and returns non-zero status code to fail CI jobs cleanly.
 - **Dry Run Mode**: Supports `--dry-run` to simulate task execution without making live API requests.
+
+## 6. Showcase & Demonstration Pipelines
+A complete end-to-end showcase pipeline configuration is available at `examples/showcase_pipeline.json`. To execute the interactive demonstration runner:
+
+```bash
+python3 examples/showcase_demo.py
+```

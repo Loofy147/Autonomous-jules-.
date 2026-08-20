@@ -42,5 +42,17 @@ autonomous-jules run --config-file pipeline.json --output-format json
 autonomous-jules run --action run_agent --param query="System audit" --dry-run
 ```
 
+## Showcase & Examples
+
+Run the end-to-end interactive showcase demonstration script to see Jules API Client, GitHub Client, Pipeline Runner, and CLI integration in action:
+
+```bash
+# Execute the full showcase demonstration
+python3 examples/showcase_demo.py
+
+# Run the declarative showcase pipeline configuration via CLI
+autonomous-jules run --config-file examples/showcase_pipeline.json --dry-run
+```
+
 ## License
 MIT
