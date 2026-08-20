@@ -1,19 +1,36 @@
 """Tests for Pipeline runner and orchestration."""
 
+import os
 import pytest
 import tempfile
 import json
-from autonomous_jules.pipeline import PipelineRunner, TaskConfig, PipelineConfig, PipelineResult
+from autonomous_jules.pipeline import PipelineRunner, TaskConfig, PipelineConfig, PipelineResult, resolve_params
 
 def test_task_config_and_pipeline_result_models():
     config = TaskConfig(task_id="t1", action="run_agent", params={"query": "hi"})
     assert config.task_id == "t1"
     assert config.retry_count == 3
 
+    p_config = PipelineConfig(name="P1", steps=[config])
+    p_dict = p_config.to_dict()
+    assert p_dict["name"] == "P1"
+    assert len(p_dict["steps"]) == 1
+
+    p_deserialized = PipelineConfig.from_dict(p_dict)
+    assert p_deserialized.name == "P1"
+
     res = PipelineResult(status="SUCCESS", execution_time=0.5, details={"res": "ok"})
     res_dict = res.to_dict()
     assert res_dict["status"] == "SUCCESS"
     assert res_dict["execution_time"] == 0.5
+
+def test_resolve_params():
+    os.environ["TEST_ENV_VAR"] = "my_env_val"
+    params = {"key1": "$TEST_ENV_VAR", "key2": "${TEST_ENV_VAR}", "key3": "literal"}
+    resolved = resolve_params(params)
+    assert resolved["key1"] == "my_env_val"
+    assert resolved["key2"] == "my_env_val"
+    assert resolved["key3"] == "literal"
 
 def test_pipeline_status():
     runner = PipelineRunner()
@@ -72,6 +89,15 @@ def test_pipeline_get_file_and_create_issue():
 
     issue_res = runner.run_step("create_issue", {"owner": "o", "repo": "r", "title": "t", "body": "b"})
     assert issue_res["status"] == "SUCCESS"
+
+    get_issue_res = runner.run_step("get_issue", {"owner": "o", "repo": "r", "issue_number": 1})
+    assert get_issue_res["status"] == "SUCCESS"
+
+def test_pipeline_create_pr():
+    runner = PipelineRunner()
+    pr_res = runner.run_step("create_pr", {"owner": "o", "repo": "r", "title": "t", "head": "h", "base": "main"})
+    assert pr_res["status"] == "SUCCESS"
+    assert "pull_request" in pr_res
 
 def test_pipeline_trigger_workflow():
     runner = PipelineRunner()

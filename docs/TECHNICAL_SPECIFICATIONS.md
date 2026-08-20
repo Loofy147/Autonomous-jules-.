@@ -17,17 +17,17 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
 ```
 
 ### Components
-1. **Jules API Client (`JulesClient`)**: Handles authentication, request dispatching, rate limiting, status polling (`poll_task_until_complete`), task cancellation (`cancel_task`), listing tasks (`list_tasks`), and response parsing for Jules platform API endpoints.
-2. **GitHub API Client (`GitHubClient`)**: Wraps REST interactions with GitHub API using Personal Access Tokens (PAT) or repository tokens for issues, pull requests, PR code reviews, workflow dispatch events, file content retrieval, and commit statuses (`create_commit_status`).
-3. **Pipeline Runner (`PipelineRunner`)**: Coordinates task execution steps, workflow state tracking, artifact reporting, configurable step failure handling (`stop_on_failure` / `continue_on_failure`), and JSON/file configuration loading.
-4. **Command Line Interface (`cli.py`)**: Entry point for developers and automated GitHub Actions runners supporting dry-run modes, custom output formats (JSON / formatted text), and argument parsing.
+1. **Jules API Client (`JulesClient`)**: Handles authentication (`is_authenticated`), request dispatching, rate limiting, status polling (`poll_task_until_complete`), task cancellation (`cancel_task`), listing tasks (`list_tasks`), and response parsing for Jules platform API endpoints.
+2. **GitHub API Client (`GitHubClient`)**: Wraps REST interactions with GitHub API using Personal Access Tokens (PAT) or repository tokens for issues (`create_issue`, `get_issue`), pull requests (`create_pull_request`, `get_pull_request`), PR code reviews (`create_pull_request_review`), workflow dispatch events, file content retrieval (`get_file_content`), and commit statuses (`create_commit_status`).
+3. **Pipeline Runner (`PipelineRunner`)**: Coordinates task execution steps, environment parameter resolution (`resolve_params`), workflow state tracking, artifact reporting, configurable step failure handling (`stop_on_failure` / `continue_on_failure`), and JSON/file configuration loading.
+4. **Command Line Interface (`cli.py`)**: Entry point for developers and automated GitHub Actions runners supporting subcommands (`status`, `run`, `poll`, `cancel`, `commit-status`, `create-pr`, `create-issue`, `get-file`), dry-run modes (`--dry-run`), custom output formats (`--output-format json|text`), and argument parsing.
 
 ## 3. Data Models
 
 ### 3.1 Task Execution Config (`TaskConfig`)
 - `task_id` (str): Unique identifier for a pipeline task.
-- `action` (str): Action name (e.g., `run_agent`, `poll`, `cancel`, `github_comment`, `github_review`, `trigger_workflow`, `commit_status`, `get_file`).
-- `params` (dict): Keyword parameters passed to target handler.
+- `action` (str): Action name (e.g., `run_agent`, `poll`, `cancel`, `github_comment`, `github_review`, `trigger_workflow`, `commit_status`, `get_file`, `create_issue`, `get_issue`, `create_pr`).
+- `params` (dict): Keyword parameters passed to target handler with environment variable resolution (`$ENV_VAR`).
 - `retry_count` (int): Max retry attempts for transient failures (default: 3).
 
 ### 3.2 Pipeline Result (`PipelineResult`)
@@ -62,7 +62,9 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
   - `get_repo(owner: str, repo: str)`: Fetches repository metadata.
   - `get_file_content(owner: str, repo: str, path: str, ref: str)`: Fetches repository file content.
   - `create_issue(owner: str, repo: str, title: str, body: str)`: Creates a repository issue.
+  - `get_issue(owner: str, repo: str, issue_number: int)`: Fetches issue details.
   - `create_issue_comment(owner: str, repo: str, issue_number: int, body: str)`: Posts status comments.
+  - `create_pull_request(owner: str, repo: str, title: str, head: str, base: str, body: str)`: Creates a new pull request.
   - `get_pull_request(owner: str, repo: str, pull_number: int)`: Fetches pull request details.
   - `create_pull_request_review(owner: str, repo: str, pull_number: int, body: str, event: str)`: Creates structured code reviews (`APPROVE`, `REQUEST_CHANGES`, `COMMENT`).
   - `trigger_workflow_dispatch(owner: str, repo: str, workflow_id: str, ref: str, inputs: dict)`: Triggers workflow dispatch events.

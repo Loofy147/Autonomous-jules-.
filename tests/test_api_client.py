@@ -7,6 +7,7 @@ def test_jules_client_init():
     client = JulesClient(api_key="test_key")
     assert client.api_key == "test_key"
     assert "Authorization" in client.headers
+    assert client.is_authenticated() is True
 
 def test_jules_client_get_status():
     client = JulesClient()

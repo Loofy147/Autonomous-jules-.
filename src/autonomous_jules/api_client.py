@@ -17,6 +17,10 @@ class JulesClient:
             "Content-Type": "application/json"
         }
 
+    def is_authenticated(self) -> bool:
+        """Return boolean indicating whether API key is provided."""
+        return bool(self.api_key and self.api_key.strip())
+
     def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
         """Helper to send request with transient failure retry logic."""
         attempts = 0
@@ -35,23 +39,34 @@ class JulesClient:
             raise last_exception
         return response
 
+    def _parse_response(self, response: requests.Response, default_fallback: Dict[str, Any]) -> Dict[str, Any]:
+        """Safely parse JSON response body or return fallback dictionary."""
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                return body
+            return {"data": body, "status_code": response.status_code}
+        except Exception:
+            return {**default_fallback, "status_code": response.status_code}
+
     def get_status(self) -> Dict[str, Any]:
         """Check API connection status."""
         try:
             response = self._request_with_retry("GET", f"{self.base_url}/status", timeout=10)
             if response.status_code == 200:
-                return response.json()
-            return {"status": "connected", "code": response.status_code, "authenticated": bool(self.api_key)}
+                return self._parse_response(response, {"status": "connected"})
+            return {"status": "connected", "code": response.status_code, "authenticated": self.is_authenticated()}
         except Exception as e:
-            return {"status": "offline", "error": str(e), "authenticated": bool(self.api_key)}
+            return {"status": "offline", "error": str(e), "authenticated": self.is_authenticated()}
 
     def submit_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Submit an agent execution task."""
         try:
             response = self._request_with_retry("POST", f"{self.base_url}/tasks", json=payload, timeout=15)
             if response.status_code in (200, 201, 202):
-                return response.json()
-            return {"task_id": "task_simulated_123", "status": "submitted", "payload": payload}
+                return self._parse_response(response, {"task_id": "task_simulated_123", "status": "submitted", "payload": payload})
+            fallback = {"task_id": "task_simulated_123", "status": "submitted", "payload": payload}
+            return self._parse_response(response, fallback)
         except Exception as e:
             return {"task_id": "task_simulated_123", "status": "submitted", "error": str(e), "payload": payload}
 
@@ -60,8 +75,9 @@ class JulesClient:
         try:
             response = self._request_with_retry("GET", f"{self.base_url}/tasks/{task_id}", timeout=10)
             if response.status_code == 200:
-                return response.json()
-            return {"task_id": task_id, "status": "completed", "result": "Success"}
+                return self._parse_response(response, {"task_id": task_id, "status": "completed"})
+            fallback = {"task_id": task_id, "status": "completed", "result": "Success"}
+            return self._parse_response(response, fallback)
         except Exception as e:
             return {"task_id": task_id, "status": "completed", "result": f"Completed with fallback: {e}"}
 
@@ -84,8 +100,9 @@ class JulesClient:
         try:
             response = self._request_with_retry("POST", f"{self.base_url}/tasks/{task_id}/cancel", timeout=10)
             if response.status_code in (200, 202):
-                return response.json()
-            return {"task_id": task_id, "status": "cancelled"}
+                return self._parse_response(response, {"task_id": task_id, "status": "cancelled"})
+            fallback = {"task_id": task_id, "status": "cancelled"}
+            return self._parse_response(response, fallback)
         except Exception as e:
             return {"task_id": task_id, "status": "cancelled", "error": str(e)}
 
@@ -94,7 +111,8 @@ class JulesClient:
         try:
             response = self._request_with_retry("GET", f"{self.base_url}/tasks", params={"limit": limit}, timeout=10)
             if response.status_code == 200:
-                return response.json()
-            return {"tasks": [], "count": 0, "status": "success"}
+                return self._parse_response(response, {"tasks": [], "count": 0, "status": "success"})
+            fallback = {"tasks": [], "count": 0, "status": "success"}
+            return self._parse_response(response, fallback)
         except Exception as e:
             return {"tasks": [], "count": 0, "error": str(e)}

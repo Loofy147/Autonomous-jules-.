@@ -1,6 +1,7 @@
 """Pipeline Orchestration and Runner module."""
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List, Union
@@ -16,6 +17,25 @@ class TaskConfig:
     params: Dict[str, Any] = field(default_factory=dict)
     retry_count: int = 3
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert TaskConfig to dictionary."""
+        return {
+            "task_id": self.task_id,
+            "action": self.action,
+            "params": self.params,
+            "retry_count": self.retry_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TaskConfig":
+        """Construct TaskConfig from dictionary."""
+        return cls(
+            task_id=data.get("task_id", "step_1"),
+            action=data.get("action", "status"),
+            params=data.get("params", {}),
+            retry_count=int(data.get("retry_count", 3)),
+        )
+
 
 @dataclass
 class PipelineConfig:
@@ -23,6 +43,23 @@ class PipelineConfig:
     name: str = "Autonomous Jules Pipeline"
     on_failure: str = "stop_on_failure"  # "stop_on_failure" or "continue_on_failure"
     steps: List[TaskConfig] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert PipelineConfig to dictionary."""
+        return {
+            "name": self.name,
+            "on_failure": self.on_failure,
+            "steps": [s.to_dict() for s in self.steps],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PipelineConfig":
+        """Construct PipelineConfig from dictionary."""
+        name = data.get("name", "Autonomous Jules Pipeline")
+        on_failure = data.get("on_failure", "stop_on_failure")
+        steps_raw = data.get("steps", [])
+        steps = [TaskConfig.from_dict(s) for s in steps_raw]
+        return cls(name=name, on_failure=on_failure, steps=steps)
 
 
 @dataclass
@@ -43,6 +80,18 @@ class PipelineResult:
         }
 
 
+def resolve_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Substitute environment variables ($VAR or ${VAR}) in parameter values."""
+    resolved = {}
+    for k, v in params.items():
+        if isinstance(v, str) and v.startswith("$"):
+            var_name = v[1:].strip("{}")
+            resolved[k] = os.getenv(var_name, v)
+        else:
+            resolved[k] = v
+    return resolved
+
+
 class PipelineRunner:
     """Orchestrates single-step and multi-step workflow actions."""
 
@@ -52,7 +101,7 @@ class PipelineRunner:
 
     def run_step(self, action: str, params: Optional[Dict[str, Any]] = None, dry_run: bool = False) -> Dict[str, Any]:
         """Execute a single workflow step."""
-        params = params or {}
+        params = resolve_params(params or {})
         start_time = time.time()
 
         if dry_run:
@@ -197,6 +246,33 @@ class PipelineRunner:
                 "issue": issue_res
             }
 
+        elif action == "get_issue":
+            owner = params.get("owner", "owner")
+            repo = params.get("repo", "repo")
+            issue_number = int(params.get("issue_number", 1))
+            issue_res = self.github_client.get_issue(owner, repo, issue_number)
+            return {
+                "action": action,
+                "status": "SUCCESS",
+                "duration": round(time.time() - start_time, 4),
+                "issue": issue_res
+            }
+
+        elif action in ("create_pr", "create_pull_request"):
+            owner = params.get("owner", "owner")
+            repo = params.get("repo", "repo")
+            title = params.get("title", "Autonomous Agent Pull Request")
+            head = params.get("head", "feature-branch")
+            base = params.get("base", "main")
+            body = params.get("body", "Automated PR created by Autonomous Jules.")
+            pr_res = self.github_client.create_pull_request(owner, repo, title, head, base, body)
+            return {
+                "action": action,
+                "status": "SUCCESS",
+                "duration": round(time.time() - start_time, 4),
+                "pull_request": pr_res
+            }
+
         else:
             return {
                 "action": action,
@@ -214,9 +290,9 @@ class PipelineRunner:
         if isinstance(pipeline_config, str):
             with open(pipeline_config, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            config = self._dict_to_config(data)
+            config = PipelineConfig.from_dict(data)
         elif isinstance(pipeline_config, dict):
-            config = self._dict_to_config(pipeline_config)
+            config = PipelineConfig.from_dict(pipeline_config)
         else:
             config = pipeline_config
 
@@ -247,19 +323,3 @@ class PipelineRunner:
             },
             errors=errors
         )
-
-    def _dict_to_config(self, data: Dict[str, Any]) -> PipelineConfig:
-        """Convert dictionary to PipelineConfig model."""
-        name = data.get("name", "Autonomous Jules Pipeline")
-        on_failure = data.get("on_failure", "stop_on_failure")
-        steps_raw = data.get("steps", [])
-
-        steps = []
-        for idx, s in enumerate(steps_raw):
-            task_id = s.get("task_id", f"step_{idx+1}")
-            action = s.get("action", "status")
-            params = s.get("params", {})
-            retry_count = int(s.get("retry_count", 3))
-            steps.append(TaskConfig(task_id=task_id, action=action, params=params, retry_count=retry_count))
-
-        return PipelineConfig(name=name, on_failure=on_failure, steps=steps)
