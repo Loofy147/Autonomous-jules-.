@@ -1,12 +1,23 @@
 """Pipeline Orchestration and Runner module."""
 
+import contextlib
+import io
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, Any, Optional, List, Union
 from autonomous_jules.api_client import JulesClient
 from autonomous_jules.github_client import GitHubClient
+
+try:
+    import ledger as L
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    import ledger as L
 
 
 @dataclass
@@ -78,6 +89,18 @@ class PipelineResult:
             "details": self.details,
             "errors": self.errors,
         }
+
+
+def _run_ledger_cli_report(fn, ledger_path: Union[str, Path], **kwargs) -> Dict[str, Any]:
+    """Capture stdout and execute a ledger CLI report command."""
+    args = SimpleNamespace(path=str(ledger_path), **kwargs)
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            rc = fn(args)
+        return {"ok": (rc if isinstance(rc, int) else 0) == 0, "output": buf.getvalue()}
+    except SystemExit as e:
+        return {"ok": False, "output": buf.getvalue(), "error": str(e.code)}
 
 
 def resolve_params(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -271,6 +294,213 @@ class PipelineRunner:
                 "status": "SUCCESS",
                 "duration": round(time.time() - start_time, 4),
                 "pull_request": pr_res
+            }
+
+        elif action == "ledger_init":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            project = params.get("project", "autonomous-jules")
+            force = params.get("force", False)
+            if ledger_path.exists() and not force:
+                return {
+                    "action": action,
+                    "status": "SUCCESS",
+                    "duration": round(time.time() - start_time, 4),
+                    "ledger": {"ok": True, "project": project, "message": f"{ledger_path} already exists."}
+                }
+            L.save(ledger_path, {
+                "project": project,
+                "created": L.datetime.now(L.timezone.utc).isoformat(),
+                "next_id": 1,
+                "entries": [],
+                "comparators": {}
+            })
+            return {
+                "action": action,
+                "status": "SUCCESS",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": {"ok": True, "project": project}
+            }
+
+        elif action == "ledger_log":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            if not ledger_path.exists():
+                L.save(ledger_path, {
+                    "project": params.get("project", "autonomous-jules"),
+                    "created": L.datetime.now(L.timezone.utc).isoformat(),
+                    "next_id": 1,
+                    "entries": [],
+                    "comparators": {}
+                })
+            data = L.load(ledger_path)
+            warnings: List[str] = []
+            try:
+                entry = L.build_entry(
+                    data,
+                    category=params.get("category", "decision"),
+                    key=params.get("key", ""),
+                    value=str(params.get("value", "")),
+                    rationale=params.get("rationale", ""),
+                    session=params.get("session", ""),
+                    supersedes=params.get("supersedes"),
+                    comparator=params.get("comparator"),
+                    warn=warnings.append,
+                )
+                L.save(ledger_path, data)
+                return {
+                    "action": action,
+                    "status": "SUCCESS",
+                    "duration": round(time.time() - start_time, 4),
+                    "ledger": {"ok": True, "id": entry["id"], "entry": entry, "warnings": warnings}
+                }
+            except Exception as e:
+                return {
+                    "action": action,
+                    "status": "FAILED",
+                    "error": str(e),
+                    "duration": round(time.time() - start_time, 4)
+                }
+
+        elif action == "ledger_check":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            if not ledger_path.exists():
+                data = {"entries": [], "comparators": {}}
+            else:
+                data = L.load(ledger_path)
+            contradictions, warnings = L._find_contradictions(
+                data.get("entries", []), data.get("comparators", {})
+            )
+            ok = len(contradictions) == 0
+            fail_on_contradiction = params.get("fail_on_contradiction", True)
+            formatted_contradictions = [
+                {
+                    "key": cur["key"],
+                    "origin_id": prev["id"],
+                    "origin_value": prev["value"],
+                    "latest_id": cur["id"],
+                    "latest_value": cur["value"],
+                }
+                for prev, cur in contradictions
+            ]
+            res_data = {
+                "action": action,
+                "status": "SUCCESS" if (ok or not fail_on_contradiction) else "FAILED",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": {
+                    "ok": ok,
+                    "contradictions": formatted_contradictions,
+                    "warnings": warnings,
+                }
+            }
+            if not ok and fail_on_contradiction:
+                res_data["error"] = f"Found {len(contradictions)} unresolved contradiction(s)"
+            return res_data
+
+        elif action == "ledger_digest":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            if not ledger_path.exists():
+                L.save(ledger_path, {
+                    "project": params.get("project", "autonomous-jules"),
+                    "created": L.datetime.now(L.timezone.utc).isoformat(),
+                    "next_id": 1,
+                    "entries": [],
+                    "comparators": {}
+                })
+            report_res = _run_ledger_cli_report(L.cmd_digest, ledger_path)
+            return {
+                "action": action,
+                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": report_res
+            }
+
+        elif action == "ledger_health":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            if not ledger_path.exists():
+                L.save(ledger_path, {
+                    "project": params.get("project", "autonomous-jules"),
+                    "created": L.datetime.now(L.timezone.utc).isoformat(),
+                    "next_id": 1,
+                    "entries": [],
+                    "comparators": {}
+                })
+            report_res = _run_ledger_cli_report(L.cmd_health, ledger_path)
+            return {
+                "action": action,
+                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": report_res
+            }
+
+        elif action == "ledger_show":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            key = params.get("key")
+            if not key:
+                return {
+                    "action": action,
+                    "status": "FAILED",
+                    "error": "Parameter 'key' is required for ledger_show",
+                    "duration": round(time.time() - start_time, 4)
+                }
+            if not ledger_path.exists():
+                return {
+                    "action": action,
+                    "status": "FAILED",
+                    "error": f"Ledger file '{ledger_path}' does not exist",
+                    "duration": round(time.time() - start_time, 4)
+                }
+            data = L.load(ledger_path)
+            entries = sorted((e for e in data.get("entries", []) if e["key"] == key), key=lambda x: x["id"])
+            if not entries:
+                return {
+                    "action": action,
+                    "status": "FAILED",
+                    "error": f"no entries for key '{key}'",
+                    "duration": round(time.time() - start_time, 4)
+                }
+            return {
+                "action": action,
+                "status": "SUCCESS",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": {"ok": True, "key": key, "entries": entries}
+            }
+
+        elif action == "ledger_keys":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            if not ledger_path.exists():
+                L.save(ledger_path, {
+                    "project": params.get("project", "autonomous-jules"),
+                    "created": L.datetime.now(L.timezone.utc).isoformat(),
+                    "next_id": 1,
+                    "entries": [],
+                    "comparators": {}
+                })
+            threshold = float(params.get("threshold", 0.80))
+            report_res = _run_ledger_cli_report(L.cmd_keys, ledger_path, threshold=threshold)
+            return {
+                "action": action,
+                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": report_res
+            }
+
+        elif action == "ledger_stale":
+            ledger_path = Path(params.get("ledger_path", "ledger.json"))
+            if not ledger_path.exists():
+                L.save(ledger_path, {
+                    "project": params.get("project", "autonomous-jules"),
+                    "created": L.datetime.now(L.timezone.utc).isoformat(),
+                    "next_id": 1,
+                    "entries": [],
+                    "comparators": {}
+                })
+            days = int(params.get("days", 30))
+            category = params.get("category")
+            report_res = _run_ledger_cli_report(L.cmd_stale, ledger_path, days=days, category=category)
+            return {
+                "action": action,
+                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "duration": round(time.time() - start_time, 4),
+                "ledger": report_res
             }
 
         else:
