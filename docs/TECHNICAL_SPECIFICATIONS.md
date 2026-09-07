@@ -1,7 +1,7 @@
 # Technical Specifications
 
 ## 1. Executive Summary & Overview
-The **Autonomous Jules** system is an automated agent runner and pipeline orchestration framework designed to integrate Jules API capabilities with GitHub automated workflows, repository management, and continuous execution.
+The **Autonomous Jules** system is an automated agent runner and pipeline orchestration framework designed to integrate Jules API capabilities with GitHub automated workflows, repository management, continuous execution, and a deterministic context decision ledger system.
 
 ## 2. System Architecture
 ```
@@ -10,23 +10,27 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
 |   / Workflows    |         |        (CLI / Pipeline)    |         | External Services |
 +------------------+         +----------------------------+         +-------------------+
                                            |
-                                           v
-                             +----------------------------+
-                             |   GitHub API / Repository  |
-                             +----------------------------+
+                                           +------------------------+
+                                           |                        |
+                                           v                        v
+                             +----------------------------+   +-------------------+
+                             |   GitHub API / Repository  |   | Context Decision  |
+                             +----------------------------+   |  Ledger System    |
+                                                              +-------------------+
 ```
 
 ### Components
 1. **Jules API Client (`JulesClient`)**: Handles authentication (`is_authenticated`), request dispatching, rate limiting, status polling (`poll_task_until_complete`), task cancellation (`cancel_task`), listing tasks (`list_tasks`), and response parsing for Jules platform API endpoints.
 2. **GitHub API Client (`GitHubClient`)**: Wraps REST interactions with GitHub API using Personal Access Tokens (PAT) or repository tokens for issues (`create_issue`, `get_issue`), pull requests (`create_pull_request`, `get_pull_request`), PR code reviews (`create_pull_request_review`), workflow dispatch events, file content retrieval (`get_file_content`), and commit statuses (`create_commit_status`).
-3. **Pipeline Runner (`PipelineRunner`)**: Coordinates task execution steps, environment parameter resolution (`resolve_params`), workflow state tracking, artifact reporting, configurable step failure handling (`stop_on_failure` / `continue_on_failure`), and JSON/file configuration loading.
-4. **Command Line Interface (`cli.py`)**: Entry point for developers and automated GitHub Actions runners supporting subcommands (`status`, `run`, `poll`, `cancel`, `commit-status`, `create-pr`, `create-issue`, `get-file`), dry-run modes (`--dry-run`), custom output formats (`--output-format json|text`), and argument parsing.
+3. **Pipeline Runner (`PipelineRunner`)**: Coordinates task execution steps, environment parameter resolution (`resolve_params`), workflow state tracking, artifact reporting, configurable step failure handling (`stop_on_failure` / `continue_on_failure`), JSON/file configuration loading, and context decision ledger execution (`ledger_init`, `ledger_log`, `ledger_check`, etc.).
+4. **Context Decision Ledger (`ledger.py`)**: A deterministic file-based ledger tracking constants, decisions, goals, constraints, findings, and scope changes with mechanical contradiction detection, comparators (`exact`, `numeric_range`), near-duplicate key detection, and session digest generation.
+5. **Command Line Interface (`cli.py`)**: Entry point for developers and automated GitHub Actions runners supporting subcommands (`status`, `run`, `poll`, `cancel`, `commit-status`, `create-pr`, `create-issue`, `get-file`), dry-run modes (`--dry-run`), custom output formats (`--output-format json|text`), and argument parsing.
 
 ## 3. Data Models
 
 ### 3.1 Task Execution Config (`TaskConfig`)
 - `task_id` (str): Unique identifier for a pipeline task.
-- `action` (str): Action name (e.g., `run_agent`, `poll`, `cancel`, `github_comment`, `github_review`, `trigger_workflow`, `commit_status`, `get_file`, `create_issue`, `get_issue`, `create_pr`).
+- `action` (str): Action name (e.g., `run_agent`, `poll`, `cancel`, `github_comment`, `github_review`, `trigger_workflow`, `commit_status`, `get_file`, `create_issue`, `get_issue`, `create_pr`, `ledger_init`, `ledger_log`, `ledger_check`, `ledger_digest`, `ledger_health`, `ledger_show`, `ledger_keys`, `ledger_stale`).
 - `params` (dict): Keyword parameters passed to target handler with environment variable resolution (`$ENV_VAR`).
 - `retry_count` (int): Max retry attempts for transient failures (default: 3).
 
@@ -41,7 +45,17 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
 - `on_failure` (str): Failure execution policy (`stop_on_failure` or `continue_on_failure`).
 - `steps` (list[TaskConfig]): Array of execution task configurations.
 
-## 4. API Integration Specifications
+### 3.4 Ledger Entry Schema (`LedgerEntry`)
+- `id` (int): Sequential integer identifier, assigned automatically.
+- `timestamp` (str): ISO 8601 UTC timestamp.
+- `category` (str): One of `constant`, `decision`, `goal`, `constraint`, `finding`, `scope`.
+- `key` (str): Stable key string matching entries across sessions.
+- `value` (str): Stored representation of value.
+- `rationale` (str): Explanation for entry.
+- `session` (str): Session tag identifier.
+- `supersedes` (int | null): ID of prior entry explicitly overridden.
+
+## 4. API & Ledger Integration Specifications
 
 ### 4.1 Jules API
 - **Base URL**: `https://api.jules.ai/v1` (or configured endpoint via `JULES_API_BASE_URL`)
@@ -70,6 +84,16 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
   - `trigger_workflow_dispatch(owner: str, repo: str, workflow_id: str, ref: str, inputs: dict)`: Triggers workflow dispatch events.
   - `get_workflow_run(owner: str, repo: str, run_id: int)`: Fetches status of a workflow run.
   - `create_commit_status(owner: str, repo: str, sha: str, state: str, target_url: str, description: str, context: str)`: Sets status check on a commit.
+
+### 4.3 Context Ledger Integration Actions
+- `ledger_init`: Initializes `ledger.json` (`project`, `force`).
+- `ledger_log`: Appends entry (`category`, `key`, `value`, `rationale`, `session`, `supersedes`, `comparator`).
+- `ledger_check`: Evaluates unresolved contradictions (`fail_on_contradiction`).
+- `ledger_digest`: Returns formatted Markdown context summary.
+- `ledger_health`: Returns health and scope creep analytics.
+- `ledger_show`: Displays key revision history.
+- `ledger_keys`: Runs string similarity checks for key naming drift (`threshold`).
+- `ledger_stale`: Flags keys inactive for over $N$ days (`days`, `category`).
 
 ## 5. Security & Credentials
 - Credentials (`JULES_API_KEY`, `GITHUB_TOKEN`) must never be hardcoded or logged in plaintext.
