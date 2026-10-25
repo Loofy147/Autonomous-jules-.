@@ -27,15 +27,19 @@ class TaskConfig:
     action: str
     params: Dict[str, Any] = field(default_factory=dict)
     retry_count: int = 3
+    depends_on: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert TaskConfig to dictionary."""
-        return {
+        res = {
             "task_id": self.task_id,
             "action": self.action,
             "params": self.params,
             "retry_count": self.retry_count,
         }
+        if self.depends_on:
+            res["depends_on"] = self.depends_on
+        return res
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskConfig":
@@ -45,6 +49,7 @@ class TaskConfig:
             action=data.get("action", "status"),
             params=data.get("params", {}),
             retry_count=int(data.get("retry_count", 3)),
+            depends_on=data.get("depends_on", []),
         )
 
 
@@ -405,12 +410,12 @@ class PipelineRunner:
                     "entries": [],
                     "comparators": {}
                 })
-            report_res = _run_ledger_cli_report(L.cmd_digest, ledger_path)
+            digest_res = L.get_digest(ledger_path) if hasattr(L, "get_digest") else _run_ledger_cli_report(L.cmd_digest, ledger_path)
             return {
                 "action": action,
-                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "status": "SUCCESS" if digest_res.get("ok", True) else "FAILED",
                 "duration": round(time.time() - start_time, 4),
-                "ledger": report_res
+                "ledger": digest_res
             }
 
         elif action == "ledger_health":
@@ -423,12 +428,12 @@ class PipelineRunner:
                     "entries": [],
                     "comparators": {}
                 })
-            report_res = _run_ledger_cli_report(L.cmd_health, ledger_path)
+            health_res = L.get_health(ledger_path) if hasattr(L, "get_health") else _run_ledger_cli_report(L.cmd_health, ledger_path)
             return {
                 "action": action,
-                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "status": "SUCCESS" if health_res.get("ok", True) else "FAILED",
                 "duration": round(time.time() - start_time, 4),
-                "ledger": report_res
+                "ledger": health_res
             }
 
         elif action == "ledger_show":
@@ -475,12 +480,12 @@ class PipelineRunner:
                     "comparators": {}
                 })
             threshold = float(params.get("threshold", 0.80))
-            report_res = _run_ledger_cli_report(L.cmd_keys, ledger_path, threshold=threshold)
+            keys_res = L.get_keys(ledger_path, threshold=threshold) if hasattr(L, "get_keys") else _run_ledger_cli_report(L.cmd_keys, ledger_path, threshold=threshold)
             return {
                 "action": action,
-                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "status": "SUCCESS" if keys_res.get("ok", True) else "FAILED",
                 "duration": round(time.time() - start_time, 4),
-                "ledger": report_res
+                "ledger": keys_res
             }
 
         elif action == "ledger_stale":
@@ -495,12 +500,12 @@ class PipelineRunner:
                 })
             days = int(params.get("days", 30))
             category = params.get("category")
-            report_res = _run_ledger_cli_report(L.cmd_stale, ledger_path, days=days, category=category)
+            stale_res = L.get_stale(ledger_path, days=days, category=category) if hasattr(L, "get_stale") else _run_ledger_cli_report(L.cmd_stale, ledger_path, days=days, category=category)
             return {
                 "action": action,
-                "status": "SUCCESS" if report_res["ok"] else "FAILED",
+                "status": "SUCCESS" if stale_res.get("ok", True) else "FAILED",
                 "duration": round(time.time() - start_time, 4),
-                "ledger": report_res
+                "ledger": stale_res
             }
 
         else:
@@ -550,6 +555,107 @@ class PipelineRunner:
                 "pipeline_name": config.name,
                 "on_failure": config.on_failure,
                 "steps": step_results
+            },
+            errors=errors
+        )
+
+
+class AsyncPipelineRunner:
+    """Asynchronous pipeline runner executing non-dependent steps concurrently."""
+
+    def __init__(self, jules_client: Optional[JulesClient] = None, github_client: Optional[GitHubClient] = None):
+        self.sync_runner = PipelineRunner(jules_client=jules_client, github_client=github_client)
+
+    async def run_step_async(self, action: str, params: Optional[Dict[str, Any]] = None, dry_run: bool = False) -> Dict[str, Any]:
+        import asyncio
+        return await asyncio.to_thread(self.sync_runner.run_step, action, params, dry_run)
+
+    async def run_pipeline_async(self, pipeline_config: Union[PipelineConfig, Dict[str, Any], str], dry_run: bool = False) -> PipelineResult:
+        import asyncio
+        start_time = time.time()
+        errors: List[str] = []
+
+        if isinstance(pipeline_config, str):
+            with open(pipeline_config, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            config = PipelineConfig.from_dict(data)
+        elif isinstance(pipeline_config, dict):
+            config = PipelineConfig.from_dict(pipeline_config)
+        else:
+            config = pipeline_config
+
+        completed_tasks: Dict[str, Dict[str, Any]] = {}
+        failed_tasks: set = set()
+        pending_steps = list(config.steps)
+        pipeline_status = "SUCCESS"
+
+        while pending_steps:
+            # Find steps whose dependencies are all satisfied
+            ready_steps = [
+                s for s in pending_steps
+                if all(dep in completed_tasks for dep in s.depends_on)
+            ]
+
+            if not ready_steps:
+                # Deadlock or unresolvable dependencies due to failure
+                unresolved_ids = [s.task_id for s in pending_steps]
+                errors.append(f"Unresolvable step dependencies or blocked steps: {unresolved_ids}")
+                pipeline_status = "FAILED"
+                break
+
+            # Remove ready steps from pending list
+            for s in ready_steps:
+                pending_steps.remove(s)
+
+            # Execute ready steps concurrently
+            tasks = [
+                self.run_step_async(s.action, s.params, dry_run=dry_run)
+                for s in ready_steps
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            step_failed = False
+            for step_cfg, res in zip(ready_steps, results):
+                if isinstance(res, Exception):
+                    err_msg = str(res)
+                    completed_tasks[step_cfg.task_id] = {
+                        "task_id": step_cfg.task_id,
+                        "action": step_cfg.action,
+                        "result": {"action": step_cfg.action, "status": "FAILED", "error": err_msg}
+                    }
+                    failed_tasks.add(step_cfg.task_id)
+                    errors.append(f"Step '{step_cfg.task_id}' ({step_cfg.action}) raised exception: {err_msg}")
+                    step_failed = True
+                else:
+                    completed_tasks[step_cfg.task_id] = {
+                        "task_id": step_cfg.task_id,
+                        "action": step_cfg.action,
+                        "result": res
+                    }
+                    if res.get("status") == "FAILED":
+                        failed_tasks.add(step_cfg.task_id)
+                        errors.append(f"Step '{step_cfg.task_id}' ({step_cfg.action}) failed: {res.get('error')}")
+                        step_failed = True
+
+            if step_failed:
+                pipeline_status = "FAILED"
+                if config.on_failure == "stop_on_failure":
+                    break
+
+        duration = round(time.time() - start_time, 4)
+        ordered_step_results = [
+            completed_tasks[s.task_id]
+            for s in config.steps
+            if s.task_id in completed_tasks
+        ]
+
+        return PipelineResult(
+            status=pipeline_status,
+            execution_time=duration,
+            details={
+                "pipeline_name": config.name,
+                "on_failure": config.on_failure,
+                "steps": ordered_step_results
             },
             errors=errors
         )

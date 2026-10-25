@@ -154,7 +154,7 @@ def test_pipeline_ledger_actions():
         # 7. Reports: ledger_digest, ledger_health, ledger_keys, ledger_stale
         res_digest = runner.run_step("ledger_digest", {"ledger_path": ledger_path})
         assert res_digest["status"] == "SUCCESS"
-        assert "Context primer" in res_digest["ledger"]["output"]
+        assert "Context primer" in res_digest["ledger"].get("markdown", res_digest["ledger"].get("output", ""))
 
         res_health = runner.run_step("ledger_health", {"ledger_path": ledger_path})
         assert res_health["status"] == "SUCCESS"
@@ -165,7 +165,7 @@ def test_pipeline_ledger_actions():
         # Testing stale keys check with days=30 (fresh entries -> no stale keys -> ok=True)
         res_stale = runner.run_step("ledger_stale", {"ledger_path": ledger_path, "days": 30})
         assert res_stale["status"] == "SUCCESS"
-        assert "no stale keys" in res_stale["ledger"]["output"]
+        assert res_stale["ledger"].get("stale_keys") == [] or "no stale keys" in res_stale["ledger"].get("output", "")
 
 
 def test_pipeline_dry_run_ledger():
@@ -203,3 +203,43 @@ def test_multi_step_pipeline_with_ledger():
         res = runner.run_pipeline(pipeline_cfg)
         assert res.status == "SUCCESS"
         assert len(res.details["steps"]) == 3
+
+
+def test_structured_ledger_reports():
+    import ledger as L
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "ledger.json"
+        data = {
+            "project": "test-project",
+            "created": L.datetime.now(L.timezone.utc).isoformat(),
+            "next_id": 1,
+            "entries": [],
+            "comparators": {}
+        }
+        L.build_entry(data, category="goal", key="GOAL_1", value="Build Async Runner", rationale="Improve performance")
+        L.build_entry(data, category="constant", key="MAX_WORKERS", value="4", session="s1")
+        L.build_entry(data, category="scope", key="SCOPE_1", value="Add Async Pipeline", session="s1")
+        L.save(path, data)
+
+        # Test get_digest
+        digest = L.get_digest(path)
+        assert digest["ok"] is True
+        assert digest["project"] == "test-project"
+        assert "Context primer" in digest["markdown"]
+
+        # Test get_health
+        health = L.get_health(path)
+        assert health["ok"] is True
+        assert health["total_entries"] == 3
+        assert health["scope_entries"] == 1
+        assert "s1" in health["session_stats"]
+
+        # Test get_keys
+        keys_res = L.get_keys(path)
+        assert keys_res["ok"] is True
+        assert keys_res["distinct_keys"] == 3
+
+        # Test get_stale
+        stale_res = L.get_stale(path, days=0)
+        assert stale_res["ok"] is True
+        assert len(stale_res["stale_keys"]) == 3

@@ -12,6 +12,22 @@ dependencies = [
     "requests>=2.28.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+]
+hub = [
+    "websockets>=11.0",
+]
+mcp = [
+    "mcp>=2.1.1",
+]
+all = [
+    "pytest>=7.0.0",
+    "websockets>=11.0",
+    "mcp>=2.1.1",
+]
+
 [project.scripts]
 autonomous-jules = "autonomous_jules.cli:main"
 
