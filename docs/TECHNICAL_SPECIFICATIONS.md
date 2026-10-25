@@ -99,3 +99,33 @@ The **Autonomous Jules** system is an automated agent runner and pipeline orches
 - Credentials (`JULES_API_KEY`, `GITHUB_TOKEN`) must never be hardcoded or logged in plaintext.
 - Read/Write repository permissions scope compliance as per GitHub PAT specifications.
 - Environment variables are loaded dynamically with fallback defaults for sandbox testing.
+
+
+## 6. Asynchronous Execution & Framework Extensions
+
+### 6.1 Asynchronous Pipeline Runner (`AsyncPipelineRunner`)
+`AsyncPipelineRunner` allows non-dependent pipeline steps to execute concurrently via `asyncio.gather`, while enforcing topological ordering for steps that specify explicit dependencies via `depends_on`.
+
+```python
+from autonomous_jules.pipeline import AsyncPipelineRunner, PipelineConfig, TaskConfig
+
+config = PipelineConfig(
+    name="Async Pipeline Example",
+    steps=[
+        TaskConfig(task_id="check_status", action="status"),
+        TaskConfig(task_id="start_agent_1", action="run_agent", params={"query": "Task 1"}),
+        TaskConfig(task_id="start_agent_2", action="run_agent", params={"query": "Task 2"}),
+        TaskConfig(task_id="aggregate_results", action="github_comment", depends_on=["start_agent_1", "start_agent_2"]),
+    ]
+)
+
+runner = AsyncPipelineRunner()
+result = await runner.run_pipeline_async(config)
+```
+
+### 6.2 Structured Ledger Reports API
+In addition to CLI string formatting, `ledger.py` exposes native Python dictionary response functions:
+- `get_digest(path: Path) -> dict`: Returns structured metadata and formatted Markdown summary (`markdown`).
+- `get_health(path: Path) -> dict`: Returns key counts, unresolved contradiction counts, and per-session activity metrics (`session_stats`).
+- `get_keys(path: Path, threshold: float = 0.80) -> dict`: Returns exact duplicate key pairs and fuzzy similarity ratios (`exact_duplicates`, `fuzzy_similar`).
+- `get_stale(path: Path, days: float = 30, category: str = None) -> dict`: Returns keys whose active values exceed staleness threshold (`stale_keys`).
