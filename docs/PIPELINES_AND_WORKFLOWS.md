@@ -58,7 +58,7 @@ The execution pipeline triggers automated Jules agent tasks and repo automation 
 ### Execution Steps
 1. Checkout repository with full history.
 2. Setup Python environment (3.12+).
-3. Install dependencies (`pip install -e .`).
+3. Install dependencies (`pip install -e ".[all]"`).
 4. Execute `autonomous-jules run --action ...` or `autonomous-jules run --config-file ...` CLI command using secrets (`JULES_API_KEY`, `GITHUB_TOKEN`).
 5. Upload execution logs and task artifacts.
 

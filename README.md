@@ -23,7 +23,7 @@ Autonomous Jules provides structured technical specifications, automated executi
 ### Local Setup
 ```bash
 # Install package locally
-pip install -e .
+pip install -e ".[all]"  # Or install specific extras: [test], [hub], [mcp]
 
 # Run test suite
 python3 -m pytest
