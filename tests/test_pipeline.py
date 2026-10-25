@@ -140,3 +140,29 @@ def test_pipeline_run_from_file():
     res = runner.run_pipeline(f_path)
     assert res.status == "SUCCESS"
     assert len(res.details["steps"]) == 1
+
+
+def test_async_pipeline_runner_execution():
+    import asyncio
+    from autonomous_jules.pipeline import AsyncPipelineRunner, PipelineConfig, TaskConfig
+
+    async def _test():
+        runner = AsyncPipelineRunner()
+        config = PipelineConfig(
+            name="Async Test Pipeline",
+            on_failure="stop_on_failure",
+            steps=[
+                TaskConfig(task_id="step1", action="status"),
+                TaskConfig(task_id="step2", action="run_agent", params={"query": "A1"}),
+                TaskConfig(task_id="step3", action="poll", params={"task_id": "t1"}, depends_on=["step2"]),
+            ]
+        )
+
+        res = await runner.run_pipeline_async(config, dry_run=True)
+        assert res.status == "SUCCESS"
+        assert len(res.details["steps"]) == 3
+        assert res.details["steps"][0]["task_id"] == "step1"
+        assert res.details["steps"][1]["task_id"] == "step2"
+        assert res.details["steps"][2]["task_id"] == "step3"
+
+    asyncio.run(_test())

@@ -334,16 +334,13 @@ def cmd_check(args):
     return 1
 
 
-def cmd_digest(args):
-    path = Path(args.path)
+
+def get_digest(path: Path) -> dict:
     data = load(path)
-    entries = sorted(data["entries"], key=lambda x: x["id"])
+    entries = sorted(data.get("entries", []), key=lambda x: x["id"])
     contradictions, warnings = _find_contradictions(entries, data.get("comparators", {}))
-    for w in warnings:
-        print(f"warning: {w}", file=sys.stderr)
     contradicted_keys = {c[1]["key"] for c in contradictions}
 
-    # latest entry per key
     latest = {}
     for e in entries:
         latest[e["key"]] = e
@@ -381,19 +378,43 @@ def cmd_digest(args):
             lines.append(f"- `{e['key']}` = {e['value']}{flag}{rationale}")
         lines.append("")
 
-    print("\n".join(lines))
+    markdown = "\n".join(lines)
+    return {
+        "ok": True,
+        "project": data.get("project", ""),
+        "total_entries": len(entries),
+        "contradictions_count": len(contradictions),
+        "contradictions": [
+            {
+                "key": cur["key"],
+                "origin_id": prev["id"],
+                "origin_value": prev["value"],
+                "latest_id": cur["id"],
+                "latest_value": cur["value"],
+            }
+            for prev, cur in contradictions
+        ],
+        "warnings": warnings,
+        "latest_entries": latest,
+        "markdown": markdown
+    }
 
 
-def cmd_health(args):
-    path = Path(args.path)
+def get_health(path: Path) -> dict:
     data = load(path)
-    entries = data["entries"]
+    entries = data.get("entries", [])
     if not entries:
-        print("ledger is empty")
-        return
+        return {
+            "ok": True,
+            "project": data.get("project", ""),
+            "total_entries": 0,
+            "distinct_keys": 0,
+            "unresolved_contradictions": 0,
+            "scope_entries": 0,
+            "sessions": {},
+            "warnings": []
+        }
     contradictions, warnings = _find_contradictions(entries, data.get("comparators", {}))
-    for w in warnings:
-        print(f"warning: {w}", file=sys.stderr)
     by_session = {}
     for e in entries:
         s = e["session"] or "(untagged)"
@@ -403,26 +424,156 @@ def cmd_health(args):
     keys = {e["key"] for e in entries}
     comparators = data.get("comparators", {})
 
-    print(f"project:              {data['project']}")
-    print(f"total entries:        {len(entries)}")
-    print(f"distinct keys:        {len(keys)}")
-    print(f"unresolved contradictions: {len(contradictions)}")
-    print(f"scope-change entries: {len(scope_entries)}")
-    print(f"sessions tagged:      {len(by_session)}")
-    if comparators:
-        print(f"keys with non-default comparator: {len(comparators)} ({', '.join(sorted(comparators))})")
-    print()
-    print("entries per session:")
+    session_stats = {}
     for s, es in sorted(by_session.items()):
         scope_ct = sum(1 for e in es if e["category"] == "scope")
-        marker = f"  <- {scope_ct} scope change(s)" if scope_ct else ""
-        print(f"  {s}: {len(es)}{marker}")
+        session_stats[s] = {"total": len(es), "scope_changes": scope_ct}
 
-    if len(scope_entries) >= 3:
+    return {
+        "ok": True,
+        "project": data.get("project", ""),
+        "total_entries": len(entries),
+        "distinct_keys": len(keys),
+        "unresolved_contradictions": len(contradictions),
+        "scope_entries": len(scope_entries),
+        "sessions_count": len(by_session),
+        "session_stats": session_stats,
+        "comparators_count": len(comparators),
+        "comparators": list(comparators.keys()),
+        "warnings": warnings
+    }
+
+
+def get_keys(path: Path, threshold: float = 0.80) -> dict:
+    data = load(path)
+    keys = sorted({e["key"] for e in data.get("entries", [])})
+    if len(keys) < 2:
+        return {
+            "ok": True,
+            "distinct_keys": len(keys),
+            "exact_duplicates": [],
+            "fuzzy_similar": []
+        }
+
+    norm = {k: _normalize_key(k) for k in keys}
+    exact_dupes, fuzzy = [], []
+    for i, k1 in enumerate(keys):
+        for k2 in keys[i + 1:]:
+            if norm[k1] == norm[k2]:
+                exact_dupes.append((k1, k2))
+                continue
+            ratio = difflib.SequenceMatcher(None, norm[k1], norm[k2]).ratio()
+            if ratio >= threshold:
+                fuzzy.append((k1, k2, round(ratio, 4)))
+    fuzzy.sort(key=lambda x: -x[2])
+
+    return {
+        "ok": True,
+        "distinct_keys": len(keys),
+        "exact_duplicates": [{"key1": k1, "key2": k2} for k1, k2 in exact_dupes],
+        "fuzzy_similar": [{"key1": k1, "key2": k2, "ratio": ratio} for k1, k2, ratio in fuzzy]
+    }
+
+
+def get_stale(path: Path, days: float = 30, category: str = None) -> dict:
+    data = load(path)
+    entries = data.get("entries", [])
+    if not entries:
+        return {
+            "ok": True,
+            "checked_keys": 0,
+            "days": days,
+            "stale_keys": [],
+            "warnings": []
+        }
+
+    latest = {}
+    for e in sorted(entries, key=lambda x: x["id"]):
+        if category and e["category"] != category:
+            continue
+        latest[e["key"]] = e
+
+    if not latest:
+        return {
+            "ok": True,
+            "checked_keys": 0,
+            "days": days,
+            "stale_keys": [],
+            "warnings": []
+        }
+
+    contradictions, warnings = _find_contradictions(entries, data.get("comparators", {}))
+    contradicted_keys = {c[1]["key"] for c in contradictions}
+
+    now = datetime.now(timezone.utc)
+    stale = []
+    for key, e in latest.items():
+        try:
+            ts = datetime.fromisoformat(e["timestamp"])
+        except ValueError:
+            warnings.append(f"key '{key}' has an unparseable timestamp, skipped")
+            continue
+        age_days = (now - ts).total_seconds() / 86400.0
+        if age_days >= days:
+            stale.append({
+                "key": e["key"],
+                "category": e["category"],
+                "value": e["value"],
+                "age_days": round(age_days, 1),
+                "id": e["id"],
+                "timestamp": e["timestamp"],
+                "session": e["session"],
+                "is_contradicted": e["key"] in contradicted_keys
+            })
+    stale.sort(key=lambda x: -x["age_days"])
+
+    return {
+        "ok": True,
+        "checked_keys": len(latest),
+        "days": days,
+        "stale_keys": stale,
+        "warnings": warnings
+    }
+
+def cmd_digest(args):
+    path = Path(args.path)
+    res = get_digest(path)
+    for w in res.get("warnings", []):
+        print(f"warning: {w}", file=sys.stderr)
+    print(res["markdown"])
+    return 0
+
+
+def cmd_health(args):
+    path = Path(args.path)
+    res = get_health(path)
+    if res["total_entries"] == 0:
+        print("ledger is empty")
+        return 0
+    for w in res.get("warnings", []):
+        print(f"warning: {w}", file=sys.stderr)
+
+    print(f"project:              {res['project']}")
+    print(f"total entries:        {res['total_entries']}")
+    print(f"distinct keys:        {res['distinct_keys']}")
+    print(f"unresolved contradictions: {res['unresolved_contradictions']}")
+    print(f"scope-change entries: {res['scope_entries']}")
+    print(f"sessions tagged:      {res['sessions_count']}")
+    if res["comparators"]:
+        print(f"keys with non-default comparator: {res['comparators_count']} ({', '.join(sorted(res['comparators']))})")
+    print()
+    print("entries per session:")
+    for s, stats in sorted(res["session_stats"].items()):
+        scope_ct = stats["scope_changes"]
+        marker = f"  <- {scope_ct} scope change(s)" if scope_ct else ""
+        print(f"  {s}: {stats['total']}{marker}")
+
+    if res["scope_entries"] >= 3:
         print()
-        print(f"note: {len(scope_entries)} scope-change entries logged total. "
+        print(f"note: {res['scope_entries']} scope-change entries logged total. "
               f"If most of these are recent, that's a real signal worth naming "
               f"to the user, not something to smooth over.")
+    return 0
 
 
 def cmd_show(args):
@@ -464,46 +615,15 @@ def _normalize_key(k):
 
 
 def cmd_keys(args):
-    """
-    Two-tier scan:
-      1. Normalize (casefold, strip whitespace/underscore/hyphen) and flag
-         exact matches -- catches 'D'/'d', 'C_safe'/'c-safe', etc. at 100%
-         confidence, independent of --threshold.
-      2. difflib.SequenceMatcher ratio on the normalized forms, flagged
-         above --threshold -- catches actual misspellings like 'eta'/'etta'.
-
-    The threshold default (0.80) was picked by running real key pairs
-    through difflib, not guessed: short keys that share a root but are
-    legitimately distinct constants (e.g. 'sigma' vs 'sigma_sq', 'rho' vs
-    'rho_c') score in the same 0.83-0.86 band as genuine one-letter typos
-    (e.g. 'eta' vs 'etta', 'alpha' vs 'alpah'). No fixed threshold
-    separates those two groups cleanly -- lowering it enough to guarantee
-    catching every typo (below ~0.80) starts pulling in root-sharing pairs
-    too. 0.80 was chosen to miss zero of the tested real typos, accepting
-    that a handful of legitimately-distinct root-sharing keys will
-    surface and need a two-second manual dismissal. That's a real,
-    tested tradeoff, not a rounding error.
-    """
     path = Path(args.path)
-    data = load(path)
-    keys = sorted({e["key"] for e in data["entries"]})
-    print(f"{len(keys)} distinct key(s)")
-    if len(keys) < 2:
+    res = get_keys(path, threshold=args.threshold)
+    print(f"{res['distinct_keys']} distinct key(s)")
+    if res['distinct_keys'] < 2:
         print("nothing to compare")
         return 0
 
-    threshold = args.threshold
-    norm = {k: _normalize_key(k) for k in keys}
-    exact_dupes, fuzzy = [], []
-    for i, k1 in enumerate(keys):
-        for k2 in keys[i + 1:]:
-            if norm[k1] == norm[k2]:
-                exact_dupes.append((k1, k2))
-                continue
-            ratio = difflib.SequenceMatcher(None, norm[k1], norm[k2]).ratio()
-            if ratio >= threshold:
-                fuzzy.append((k1, k2, ratio))
-    fuzzy.sort(key=lambda x: -x[2])
+    exact_dupes = res["exact_duplicates"]
+    fuzzy = res["fuzzy_similar"]
 
     if not exact_dupes and not fuzzy:
         print("no near-duplicate keys found")
@@ -512,13 +632,13 @@ def cmd_keys(args):
     if exact_dupes:
         print(f"\n{len(exact_dupes)} pair(s) identical once case/spaces/underscores/hyphens "
               f"are stripped -- almost certainly the same fact under two spellings:")
-        for k1, k2 in exact_dupes:
-            print(f"  '{k1}'  <->  '{k2}'")
+        for pair in exact_dupes:
+            print(f"  '{pair['key1']}'  <->  '{pair['key2']}'")
 
     if fuzzy:
-        print(f"\n{len(fuzzy)} pair(s) similar but not identical (threshold={threshold}):")
-        for k1, k2, ratio in fuzzy:
-            print(f"  {ratio:.2f}  '{k1}'  <->  '{k2}'")
+        print(f"\n{len(fuzzy)} pair(s) similar but not identical (threshold={args.threshold}):")
+        for item in fuzzy:
+            print(f"  {item['ratio']:.2f}  '{item['key1']}'  <->  '{item['key2']}'")
 
     print("\nnote: spelling-similarity heuristic, not semantic understanding -- "
           "'D' and 'hrr_dim' mean the same thing and will NOT be caught; short "
@@ -528,52 +648,28 @@ def cmd_keys(args):
 
 def cmd_stale(args):
     path = Path(args.path)
-    data = load(path)
-    entries = data["entries"]
-    if not entries:
-        print("ledger is empty")
-        return 0
+    res = get_stale(path, days=args.days, category=args.category)
+    for w in res.get("warnings", []):
+        print(f"warning: {w}", file=sys.stderr)
 
-    latest = {}
-    for e in sorted(entries, key=lambda x: x["id"]):
-        if args.category and e["category"] != args.category:
-            continue
-        latest[e["key"]] = e
-    if not latest:
+    if res["checked_keys"] == 0:
         scope = f" in category '{args.category}'" if args.category else ""
         print(f"no entries{scope}")
         return 0
 
-    contradictions, _ = _find_contradictions(entries, data.get("comparators", {}))
-    contradicted_keys = {c[1]["key"] for c in contradictions}
-
-    now = datetime.now(timezone.utc)
-    stale, unparseable = [], []
-    for key, e in latest.items():
-        try:
-            ts = datetime.fromisoformat(e["timestamp"])
-        except ValueError:
-            unparseable.append(key)
-            continue
-        age_days = (now - ts).total_seconds() / 86400.0
-        if age_days >= args.days:
-            stale.append((e, age_days))
-    stale.sort(key=lambda x: -x[1])
-
     scope_note = f" in category '{args.category}'" if args.category else ""
-    print(f"{len(latest)} key(s) checked{scope_note}, staleness threshold = {args.days} day(s)")
-    for k in unparseable:
-        print(f"warning: key '{k}' has an unparseable timestamp, skipped", file=sys.stderr)
+    print(f"{res['checked_keys']} key(s) checked{scope_note}, staleness threshold = {args.days} day(s)")
 
-    if not stale:
+    stale_keys = res["stale_keys"]
+    if not stale_keys:
         print("no stale keys")
         return 0
 
-    print(f"\n{len(stale)} stale key(s):\n")
-    for e, age in stale:
-        flag = "  ⚠ also has an unresolved contradiction" if e["key"] in contradicted_keys else ""
-        print(f"  '{e['key']}' [{e['category']}] = {e['value']!r} -- {age:.1f}d old "
-              f"(#{e['id']}, {e['timestamp'][:10]}, session={e['session'] or '?'}){flag}")
+    print(f"\n{len(stale_keys)} stale key(s):\n")
+    for item in stale_keys:
+        flag = "  ⚠ also has an unresolved contradiction" if item["is_contradicted"] else ""
+        print(f"  '{item['key']}' [{item['category']}] = {item['value']!r} -- {item['age_days']:.1f}d old "
+              f"(#{item['id']}, {item['timestamp'][:10]}, session={item['session'] or '?'}){flag}")
     return 1
 
 
